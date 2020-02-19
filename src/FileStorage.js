@@ -1,9 +1,27 @@
 function newFileStorage () {
-  const MODULE_NAME = 'File Cloud'
+  const MODULE_NAME = 'File Storage'
   const INFO_LOG = false
-  const ERROR_LOG = true
   const logger = newWebDebugLog()
   logger.fileName = MODULE_NAME
+
+  const MAX_RETRY = 2
+  let currentRetry = 0
+
+  const recoverableErrors = [
+    'SOCKETTIMEDOUT',
+    'TIMEDOUT',
+    'CONNRESET',
+    'CONNREFUSED',
+    'NOTFOUND',
+    'ENOTFOUND',
+    'ECONNREFUSED',
+    'CONNREFUSED',
+    'NOTFOUND',
+    'ESOCKETTIMEDOUT',
+    'ECONNRESET',
+    'ETIMEDOUT',
+    'EAI_AGAIN'
+  ]
 
   let thisObject = {
     getBlobToText: getBlobToText
@@ -11,39 +29,39 @@ function newFileStorage () {
 
   return thisObject
 
-  function getBlobToText (pContainerName, pPath, callBackFunction) {
+  async function getBlobToText (filePath, host, callBackFunction) {
     try {
       if (INFO_LOG === true) { logger.write('[INFO] getBlobToText -> Entering function.') }
 
-      let xhttp = new XMLHttpRequest()
-      xhttp.onreadystatechange = function () {
-        if (this.readyState === 4 && this.status === 200) {
-          try {
-            let response = JSON.parse(xhttp.responseText)
-            callBackFunction(response.err, response.text, '')
-          } catch (err) {
-            if (ERROR_LOG === true) { console.log(spacePad(MODULE_NAME, 50) + ' : ' + '[ERROR] AppPreLoader -> getBlobToText -> Invalid JSON received. ') }
-            if (ERROR_LOG === true) { console.log(spacePad(MODULE_NAME, 50) + ' : ' + '[ERROR] AppPreLoader -> getBlobToText -> response.text = ' & response.text) }
-            callBackFunction(GLOBAL.DEFAULT_FAIL_RESPONSE, '', '')
-          }
+      callServer(undefined, 'Storage/' + filePath, (response, fileContent) => {
+        if (response.result === GLOBAL.DEFAULT_OK_RESPONSE.result) {
+          callBackFunction(GLOBAL.DEFAULT_OK_RESPONSE, fileContent)
+        } else {
+          callBackFunction(response)
         }
-      }
-
-      let request = {
-        conatinerName: pContainerName,
-        path: pPath
-      }
-
-      request = JSON.stringify(request)
-
-      let path = window.canvasApp.urlPrefix + 'FileService'
-
-      let blob = new Blob([request], { type: 'text/plain' })
-
-      xhttp.open('POST', path, true)
-      xhttp.send(blob)
+      })
     } catch (err) {
-      if (ERROR_LOG === true) { logger.write('[ERROR] getBlobToText -> err = ' + err.stack) }
+      if (verifyRetry(err.code) && currentRetry < MAX_RETRY) {
+        currentRetry++
+        if (INFO_LOG === true) { console.log('[INFO] getTextFile -> Retrying connection to the server because received error: ' + err.code + '. Retry #: ' + currentRetry) }
+        getBlobToText(filePath, host, callBackFunction)
+      } else if (err.message === 'Request aborted') {
+        let err = { code: 'The specified key does not exist.' }
+        callBackFunction(err)
+      } else {
+        console.log('Error geting the file from the serever:', err)
+        callBackFunction(GLOBAL.DEFAULT_FAIL_RESPONSE)
+      }
     }
+  }
+
+  function verifyRetry (errorCode) {
+    for (let i = 0; i < recoverableErrors.length; i++) {
+      const error = recoverableErrors[i]
+      if (error === errorCode) {
+        return true
+      }
+    }
+    return false
   }
 }

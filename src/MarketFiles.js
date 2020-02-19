@@ -24,9 +24,11 @@ function newMarketFiles () {
 
   let market
   let exchange
-  let devTeam
+  let dataMine
   let bot
-  let thisSet
+  let session
+  let dataset
+  let product
   let periodName
 
   thisObject.eventHandler = newEventHandler()
@@ -34,34 +36,44 @@ function newMarketFiles () {
   let intervalHandle
   let finalized = false
 
+  let eventSubscriptionIdDatasetUpdated
+
   return thisObject
 
   function finalize () {
     try {
-      clearInterval(intervalHandle)
+      systemEventHandler.stopListening('Dataset Updated', eventSubscriptionIdDatasetUpdated)
+
+      thisObject.eventHandler.finalize()
+      thisObject.eventHandler = undefined
 
       filesLoaded = undefined
       files = undefined
+
+      market = undefined
+      exchange = undefined
+      dataMine = undefined
+      bot = undefined
+      session = undefined
+      dataset = undefined
+      product = undefined
+      periodName = undefined
+
       finalized = true
     } catch (err) {
       if (ERROR_LOG === true) { logger.write('[ERROR] finalize -> err = ' + err.stack) }
     }
   }
 
-  function initialize (pDevTeam, pBot, pProduct, pSet, pExchange, pMarket, callBackFunction) {
+  function initialize (pDataMine, pBot, pSession, pProduct, pDataset, pExchange, pMarket, callBackFunction) {
     try {
-      exchange = ecosystem.getExchange(pProduct, pExchange)
-
-      if (exchange === undefined) {
-        throw 'Exchange not supoorted by this pProduct of the ecosystem! - pDevTeam.codeName = ' + pDevTeam.codeName + ', pBot.codeName = ' + pBot.codeName + ', pProduct.codeName = ' + pProduct.codeName + ', pExchange = ' + pExchange
-      }
-
-      intervalHandle = setInterval(updateFiles, _10_MINUTES_IN_MILISECONDS)
-
+      exchange = pExchange
       market = pMarket
-      devTeam = pDevTeam
+      dataMine = pDataMine
       bot = pBot
-      thisSet = pSet
+      session = pSession
+      dataset = pDataset
+      product = pProduct
 
       fileCloud = newFileCloud()
       fileCloud.initialize(pBot)
@@ -72,11 +84,12 @@ function newMarketFiles () {
         let periodTime = marketFilesPeriods[i][0]
         let periodName = marketFilesPeriods[i][1]
 
-        if (thisSet.validPeriods.includes(periodName) === true) {
-          fileCloud.getFile(devTeam, bot, thisSet, exchange, market, periodName, undefined, undefined, undefined, onFileReceived)
+        if (dataset.code.validTimeFrames.includes(periodName) === true) {
+          fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, periodName, undefined, undefined, undefined, onFileReceived)
 
           function onFileReceived (err, file) {
             try {
+              if (finalized === true) { return }
               if (err.result === GLOBAL.DEFAULT_OK_RESPONSE.result) {
                 files.set(periodTime, file)
                 filesLoaded++
@@ -85,7 +98,14 @@ function newMarketFiles () {
               }
 
               if (filesLoaded + filesNotLoaded === marketFilesPeriods.length) {
+                let key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + dataset.code.codeName
+                systemEventHandler.listenToEvent(key, 'Dataset Updated', undefined, key + '-' + periodName, onResponse, updateFiles)
+
                 callBackFunction(GLOBAL.DEFAULT_OK_RESPONSE, thisObject)
+
+                function onResponse (message) {
+                  eventSubscriptionIdDatasetUpdated = message.eventSubscriptionId
+                }
               }
             } catch (err) {
               if (ERROR_LOG === true) { logger.write('[ERROR] initialize -> onFileReceived -> err = ' + err.stack) }
@@ -103,7 +123,7 @@ function newMarketFiles () {
   function updateFiles () {
     try {
       if (finalized === true) { return }
-      let updateFiles = 0
+      let updatedFiles = 0
 
             /* Now we will get the market files */
 
@@ -111,16 +131,17 @@ function newMarketFiles () {
         let periodTime = marketFilesPeriods[i][0]
         let periodName = marketFilesPeriods[i][1]
 
-        if (thisSet.validPeriods.includes(periodName) === true) {
-          fileCloud.getFile(devTeam, bot, thisSet, exchange, market, periodName, undefined, undefined, undefined, onFileReceived)
+        if (dataset.code.validTimeFrames.includes(periodName) === true) {
+          fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, periodName, undefined, undefined, undefined, onFileReceived)
 
           function onFileReceived (err, file) {
             try {
+              if (finalized === true) { return }
               files.set(periodTime, file)
-              updateFiles++
+              updatedFiles++
 
-              if (updateFiles === marketFilesPeriods.length) {
-                thisObject.eventHandler.raiseEvent('Files Updated', undefined)
+              if (updatedFiles === marketFilesPeriods.length) {
+                thisObject.eventHandler.raiseEvent('Files Updated')
               }
             } catch (err) {
               if (ERROR_LOG === true) { logger.write('[ERROR] updateFiles -> onFileReceived -> err = ' + err.stack) }

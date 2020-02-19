@@ -22,53 +22,32 @@ function newFileCloud () {
   return thisObject
 
   function initialize (pBot) {
-    try {
-      if (INFO_LOG === true) { logger.write('[INFO] initialize -> Entering function.') }
-      if (INFO_LOG === true) { logger.write('[INFO] initialize -> pBot = ' + pBot.codeName) }
-
-      switch (STORAGE_PROVIDER) {
-        case 'Azure': {
-          blobService = AzureStorage.Blob.createBlobServiceWithSas(pBot.storage.fileUri, pBot.storage.sas)
-          break
-        }
-        case 'AAWeb': {
-          blobService = newFileStorage()
-          break
-        }
-        default: {
-          if (ERROR_LOG === true) { logger.write('[ERROR] initialize -> Storage Provider not supported -> process.env.STORAGE_PROVIDER = ' + STORAGE_PROVIDER) }
-          return
-        }
-      }
-    } catch (err) {
-      if (ERROR_LOG === true) { logger.write('[ERROR] initialize -> err = ' + err.stack) }
-      // callBackFunction(GLOBAL.DEFAULT_FAIL_RESPONSE);  TODO> Handle this callback.
-    }
+    blobService = newFileStorage()
   }
 
-  function getFile (pDevTeam, pBot, pSet, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction) {
+  function getFile (pDataMine, pBot, pSession, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction) {
     try {
       if (INFO_LOG === true) { logger.write('[INFO] getFile -> Entering function.') }
 
       const MAX_RETRIES = 3
 
-      getFileRecursively(0, pDevTeam, pBot, pSet, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction)
+      getFileRecursively(0, pDataMine, pBot, pSession, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction)
 
-      function getFileRecursively (pRetryCounter, pDevTeam, pBot, pSet, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction) {
+      function getFileRecursively (pRetryCounter, pDataMine, pBot, pSession, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction) {
         try {
           if (INFO_LOG === true) { logger.write('[INFO] getFile -> getFileRecursively -> Entering function.') }
-          if (INFO_LOG === true) { logger.write('[INFO] getFile -> getFileRecursively -> key = ' + pDevTeam.codeName + '-' + pBot.codeName + '-' + pSet.filePath + '-' + pSet.fileName) }
+          if (INFO_LOG === true) { logger.write('[INFO] getFile -> getFileRecursively -> key = ' + pDataMine.code.codeName + '-' + pBot.code.codeName + '-' + pDataset.code.filePath + '-' + pDataset.code.fileName) }
 
           let fileName
           let filePath
 
           if (pDataRange === undefined) {
-            fileName = pSet.fileName
-            filePath = pSet.filePath
+            fileName = pDataset.code.fileName
+            filePath = pDataset.code.filePath
           } else {
-            if (pSet.dataRange !== undefined) {
-              fileName = pSet.dataRange.fileName
-              filePath = pSet.dataRange.filePath
+            if (pDataset.code.dataRange !== undefined) {
+              fileName = pDataset.code.dataRange.fileName
+              filePath = pDataset.code.dataRange.filePath
             } else {
               let customErr = {
                 result: GLOBAL.CUSTOM_FAIL_RESPONSE.result,
@@ -85,9 +64,9 @@ function newFileCloud () {
 
           if (fileName === undefined) {
             logger.write('[ERROR] getFile -> getFileRecursively -> Inconsistant data. Check the following: ')
-            logger.write('[ERROR] getFile -> getFileRecursively -> pDevTeam = ' + JSON.stringify(pDevTeam))
+            logger.write('[ERROR] getFile -> getFileRecursively -> pDataMine = ' + JSON.stringify(pDataMine))
             logger.write('[ERROR] getFile -> getFileRecursively -> pBot = ' + JSON.stringify(pBot))
-            logger.write('[ERROR] getFile -> getFileRecursively -> pSet = ' + JSON.stringify(pSet))
+            logger.write('[ERROR] getFile -> getFileRecursively -> pDataset = ' + JSON.stringify(pDataset))
             logger.write('[ERROR] getFile -> getFileRecursively -> pExchange = ' + JSON.stringify(pExchange))
             logger.write('[ERROR] getFile -> getFileRecursively -> pMarket = ' + JSON.stringify(pMarket))
             logger.write('[ERROR] getFile -> getFileRecursively -> pPeriodName = ' + JSON.stringify(pPeriodName))
@@ -96,24 +75,31 @@ function newFileCloud () {
           }
 
           if (pMarket !== undefined) {
-            fileName = fileName.replace('@AssetA', pMarket.assetA)
-            fileName = fileName.replace('@AssetB', pMarket.assetB)
+            fileName = fileName.replace('@BaseAsset', pMarket.baseAsset)
+            fileName = fileName.replace('@QuotedAsset', pMarket.quotedAsset)
           }
 
-          if (pDevTeam !== undefined) {
-            filePath = filePath.replace('@DevTeam', pDevTeam.codeName)
+          if (pDataMine !== undefined) {
+            filePath = filePath.replace('@DataMine', pDataMine.code.codeName)
           }
 
           if (pBot !== undefined) {
-            if (pBot.cloneId !== undefined) {
-              filePath = filePath.replace('@Bot', pBot.codeName + '-' + pBot.cloneId)
-            } else {
-              filePath = filePath.replace('@Bot', pBot.codeName)
+            filePath = filePath.replace('@Bot', pBot.code.codeName)
+          }
+
+          if (pSession !== undefined) {
+            let code
+            let sessionFolderName = pSession.id
+            if (pSession.code !== undefined) {
+              if (pSession.code.folderName !== undefined) {
+                sessionFolderName = pSession.code.folderName + '-' + pSession.id
+              }
             }
+            filePath = filePath.replace('@Session', sessionFolderName)
           }
 
           if (pExchange !== undefined) {
-            filePath = filePath.replace('@Exchange', pExchange.name)
+            filePath = filePath.replace('@Exchange', pExchange.code.codeName)
           }
 
           filePath = filePath.replace('@Period', pPeriodName)
@@ -133,11 +119,7 @@ function newFileCloud () {
           if (INFO_LOG === true) { logger.write('[INFO] getFile -> getFileRecursively -> filePath = ' + filePath) }
           if (INFO_LOG === true) { logger.write('[INFO] getFile -> getFileRecursively -> fileName = ' + fileName) }
 
-          let containerName
-
-          containerName = pDevTeam.codeName.toLowerCase()
-
-          blobService.getBlobToText(containerName, filePath + '/' + fileName, onFileReceived)
+          blobService.getBlobToText(filePath + '/' + fileName, undefined, onFileReceived)
 
           function onFileReceived (err, text, response) {
             try {
@@ -148,7 +130,7 @@ function newFileCloud () {
               let data
 
               if (err && err.result !== GLOBAL.DEFAULT_OK_RESPONSE.result) {
-                if (err.code === 'BlobNotFound' | err.code === 'FileNotFound' | err.code === 'ParentNotFound') {
+                if (err.code === 'BlobNotFound' | err.code === 'FileNotFound' | err.code === 'ParentNotFound' | err.code === 'The specified key does not exist.') {
                   let customErr = {
                     result: GLOBAL.CUSTOM_FAIL_RESPONSE.result,
                     message: 'File does not exist.'
@@ -160,7 +142,6 @@ function newFileCloud () {
                   return
                 }
 
-                if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> containerName = ' + containerName) }
                 if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> filePath = ' + filePath) }
                 if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> fileName = ' + fileName) }
                 if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> Unexpected Error Ocurred.') }
@@ -174,7 +155,7 @@ function newFileCloud () {
                     if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> MAX_RETRIES = ' + MAX_RETRIES) }
                     if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> pRetryCounter = ' + pRetryCounter) }
 
-                    getFileRecursively(pRetryCounter + 1, pDevTeam, pBot, pSet, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction)
+                    getFileRecursively(pRetryCounter + 1, pDataMine, pBot, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction)
                     return
                   } else {
                     if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> Could not get this file from storage. ') }
@@ -195,7 +176,6 @@ function newFileCloud () {
                   return
                 } catch (err) {
                   if (ERROR_LOG === true) { logger.write('[WARN] getFile -> getFileRecursively -> onFileReceived -> err = ' + err.stack) }
-                  if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> containerName = ' + containerName) }
                   if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> filePath = ' + filePath) }
                   if (ERROR_LOG === true) { logger.write('[ERROR] getFile -> getFileRecursively -> onFileReceived -> fileName = ' + fileName) }
 

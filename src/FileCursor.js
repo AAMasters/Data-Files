@@ -1,4 +1,4 @@
- ﻿
+
 function newFileCursor () {
   const MODULE_NAME = 'File Cursor'
   const INFO_LOG = false
@@ -9,9 +9,10 @@ function newFileCursor () {
   let cursorDate
 
   let thisObject = {
+    eventHandler: undefined, // received from parent
     reload: reload,
     setDatetime: setDatetime,
-    setTimePeriod: setTimePeriod,
+    setTimeFrame: setTimeFrame,
     files: new Map(),
     getExpectedFiles: getExpectedFiles,
     initialize: initialize,
@@ -24,150 +25,138 @@ function newFileCursor () {
   let market
   let exchange
   let fileCloud
-  let devTeam
+  let dataMine
   let bot
-  let thisSet
+  let session
+  let product
+  let dataset
   let periodName
-  let timePeriod
+  let timeFrame
   let beginDateRange
   let endDateRange
 
-  let intervalHandle
   let finalized = false
+
+  let eventSubscriptionIdDatasetUpdated
+  let eventSubscriptionIdDataRangeUpdated
 
   return thisObject
 
   function finalize () {
     try {
-      if (INFO_LOG === true) { logger.write('[INFO] finalize -> Entering function.') }
+      systemEventHandler.stopListening('Dataset Updated', eventSubscriptionIdDatasetUpdated)
+      systemEventHandler.stopListening('Data Range Updated', eventSubscriptionIdDataRangeUpdated)
 
-      clearInterval(intervalHandle)
+      thisObject.eventHandler = undefined
+
+      market = undefined
+      exchange = undefined
+      fileCloud = undefined
+      dataMine = undefined
+      bot = undefined
+      session = undefined
+      product = undefined
+      dataset = undefined
+      periodName = undefined
+      timeFrame = undefined
+      beginDateRange = undefined
+      endDateRange = undefined
 
       thisObject.files = undefined
       cursorDate = undefined
       fileCloud = undefined
       periodName = undefined
-      timePeriod = undefined
+      timeFrame = undefined
       finalized = true
     } catch (err) {
       if (ERROR_LOG === true) { logger.write('[ERROR] finalize -> err = ' + err.stack) }
     }
   }
 
-  function initialize (pFileCloud, pDevTeam, pBot, pSet, pExchange, pMarket, pPeriodName, pTimePeriod, pCursorDate, pCurrentTimePeriod, pBeginDateRange, pEndDateRange, callBackFunction) {
+  function initialize (pFileCloud, pDataMine, pBot, pSession, pProduct, pDataset, pExchange, pMarket, pPeriodName, pTimeFrame, pCursorDate, pCurrentTimeFrame, pBeginDateRange, pEndDateRange, callBackFunction) {
     try {
-      if (INFO_LOG === true) { logger.write('[INFO] initialize -> Entering function.') }
-      if (INFO_LOG === true) { logger.write('[INFO] initialize -> key = ' + pDevTeam.codeName + '-' + pBot.codeName + '-' + pSet.codeName + '-' + pPeriodName) }
-
       market = pMarket
       exchange = pExchange
       fileCloud = pFileCloud
-      devTeam = pDevTeam
+      dataMine = pDataMine
       bot = pBot
-      thisSet = pSet
+      session = pSession
+      product = pProduct
+      dataset = pDataset
       periodName = pPeriodName
       cursorDate = removeTime(pCursorDate)
-      timePeriod = pTimePeriod
+      timeFrame = pTimeFrame
       beginDateRange = pBeginDateRange
       endDateRange = pEndDateRange
 
-      if (INFO_LOG === true) { logger.write('[INFO] initialize -> market = ' + market) }
-      if (INFO_LOG === true) { logger.write('[INFO] initialize -> periodName = ' + periodName) }
-      if (INFO_LOG === true) { logger.write('[INFO] initialize -> cursorDate = ' + cursorDate) }
-      if (INFO_LOG === true) { logger.write('[INFO] initialize -> beginDateRange = ' + beginDateRange) }
-      if (INFO_LOG === true) { logger.write('[INFO] initialize -> endDateRange = ' + endDateRange) }
+      let key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + dataset.code.codeName
+      systemEventHandler.listenToEvent(key, 'Dataset Updated', undefined, key + '-' + periodName, onResponseDataSet, updateFiles)
 
-      setTimePeriod(pCurrentTimePeriod, pCursorDate)
-
-      intervalHandle = setInterval(updateFiles, timePeriod)
+      key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + pPeriodName
+      systemEventHandler.listenToEvent(key, 'Data Range Updated', undefined, key, onResponseDataRange, updateDataRange)
 
       callBackFunction(GLOBAL.DEFAULT_OK_RESPONSE)
+
+      function onResponseDataSet (message) {
+        eventSubscriptionIdDatasetUpdated = message.eventSubscriptionId
+      }
+
+      function onResponseDataRange (message) {
+        eventSubscriptionIdDataRangeUpdated = message.eventSubscriptionId
+      }
     } catch (err) {
       if (ERROR_LOG === true) { logger.write('[ERROR] initialize -> err = ' + err.stack) }
       callBackFunction(GLOBAL.DEFAULT_FAIL_RESPONSE)
     }
   }
 
-  function updateFiles () {
+  function updateDataRange (message) {
     try {
       if (finalized === true) { return }
-      if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> Entering function.') }
 
-            /*
+      if (message.event === undefined || message.event.dateRange === undefined) { return }
 
-            In order to know if we need to update any file we follow this logic:
+      beginDateRange = new Date(message.event.dateRange.begin)
+      endDateRange = new Date(message.event.dateRange.end)
 
-            1. If the current date is already a file in the cursor, we need to update it.
-            2. If the current date is one day ahead of a file in the cursor, we need to add this one to the cursor.
+      let minDate = beginDateRange.valueOf()
+      let maxDate = endDateRange.valueOf() + ONE_DAY_IN_MILISECONDS
 
-            */
+      for (let key of thisObject.files.keys()) {
+        let keyDate = new Date(key)
 
-      let targetDate
+        if (keyDate.valueOf() < minDate || keyDate.valueOf() > maxDate) {
+          thisObject.files.delete(key)
+          thisObject.eventHandler.raiseEvent('Files Updated')
+        }
+      }
+    } catch (err) {
+      if (ERROR_LOG === true) { logger.write('[ERROR] updateDataRange -> err = ' + err.stack) }
+    }
+  }
+
+  function updateFiles (message) {
+    try {
+      if (finalized === true) { return }
+
+      if (message.event === undefined || message.event.lastFile === undefined) { return }
+
+      let targetDate = new Date(message.event.lastFile)
       let dateString
       let file
 
-            /* Situation 1 */
-
-      targetDate = new Date()
       dateString = targetDate.getUTCFullYear() + '-' + pad(targetDate.getUTCMonth() + 1, 2) + '-' + pad(targetDate.getUTCDate(), 2)
 
-      file = thisObject.files.get(dateString)
-
-      if (file !== undefined) {
-        if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> File found at the cursor, proceeding to update.') }
-
-        fileCloud.getFile(devTeam, bot, thisSet, exchange, market, periodName, targetDate, undefined, undefined, onFileReceived)
-
-        return
-      }
-
-            /* Situation 2 */
-
-      targetDate = new Date((new Date()).valueOf() - ONE_DAY_IN_MILISECONDS)
-      dateString = targetDate.getUTCFullYear() + '-' + pad(targetDate.getUTCMonth() + 1, 2) + '-' + pad(targetDate.getUTCDate(), 2)
-
-      file = thisObject.files.get(dateString) // This is from yesterday
-
-      targetDate = new Date()
-      dateString = targetDate.getUTCFullYear() + '-' + pad(targetDate.getUTCMonth() + 1, 2) + '-' + pad(targetDate.getUTCDate(), 2)
-
-      if (file !== undefined) {
-        if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> Previous day file found at the cursor, proceeding to add current date.') }
-
-        fileCloud.getFile(devTeam, bot, thisSet, exchange, market, periodName, targetDate, undefined, undefined, onFileReceived)
-
-        return
-      }
+      fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, periodName, targetDate, undefined, undefined, onFileReceived)
 
       function onFileReceived (err, file) {
         try {
           if (finalized === true) { return }
-          if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> onFileReceived -> Entering function.') }
 
-          switch (err.result) {
-            case GLOBAL.DEFAULT_OK_RESPONSE.result: {
-              if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> onFileReceived -> Received OK Response.') }
-              break
-            }
-
-            case GLOBAL.DEFAULT_FAIL_RESPONSE.result: {
-              if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> onFileReceived -> Received FAIL Response.') }
-              return
-            }
-
-            default: {
-              if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> onFileReceived -> Received Unexpected Response.') }
-              return
-            }
+          if (err.result === GLOBAL.DEFAULT_OK_RESPONSE.result) {
+            thisObject.files.set(dateString, file)
+            thisObject.eventHandler.raiseEvent('Files Updated')
           }
-
-          thisObject.files.set(dateString, file)
-
-          if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> onFileReceived -> File updated.') }
-          if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> onFileReceived -> devTeam = ' + devTeam.codeName) }
-          if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> onFileReceived -> bot = ' + bot.codeName) }
-          if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> onFileReceived -> thisSet = ' + thisSet.codeName) }
-          if (INFO_LOG === true) { logger.write('[INFO] updateFiles -> onFileReceived -> dateString = ' + dateString) }
         } catch (err) {
           if (ERROR_LOG === true) { logger.write('[ERROR] updateFiles -> onFileReceived -> err = ' + err.stack) }
           callBackFunction(GLOBAL.DEFAULT_FAIL_RESPONSE)
@@ -178,21 +167,20 @@ function newFileCursor () {
     }
   }
 
-  function setTimePeriod (pTimePeriod, pDatetime) {
+  function setTimeFrame (pTimeFrame, pDatetime) {
     try {
       if (finalized === true) { return }
-      if (INFO_LOG === true) { logger.write('[INFO] setTimePeriod -> Entering function.') }
 
-            /*
+      /*
 
-            We are implementing here an algorithm designed to save bandwidth, memory and processing power at the browser.
-            We say there is a saving mode where the cursor is running at a minimum size. When the end user aproaches the time period the cursor
-            is set, then it should exit the saving mode and go to its actual size.
+      We are implementing here an algorithm designed to save bandwidth, memory and processing power at the browser.
+      We say there is a saving mode where the cursor is running at a minimum size. When the end user aproaches the time period the cursor
+      is set, then it should exit the saving mode and go to its actual size.
 
-            To do this we are going to measure the distance from the Time Period received to the one the cursors was initialized with.
-            If these periods are consecutive, it means that the cursor should exit saving mode and load its full size.
+      To do this we are going to measure the distance from the Time Frame received to the one the cursors was initialized with.
+      If these periods are consecutive, it means that the cursor should exit saving mode and load its full size.
 
-            */
+      */
 
       cursorDate = removeTime(pDatetime) // Adjust the cursor date to the one received.
 
@@ -201,34 +189,24 @@ function newFileCursor () {
       for (let i = 0; i < dailyFilePeriods.length; i++) {
         let period = dailyFilePeriods[i]
 
-        if (period[0] === pTimePeriod) {
+        if (period[0] === pTimeFrame) {
           positionA = i
         }
 
-        if (period[0] === timePeriod) {
+        if (period[0] === timeFrame) {
           positionB = i
         }
       }
 
       if (Math.abs(positionB - positionA) <= 1) {
-        if (INFO_LOG === true) { logger.write('[INFO] setTimePeriod -> Will EXIT Saving Mode.') }
-        if (INFO_LOG === true) { logger.write('[INFO] setTimePeriod -> pTimePeriod = ' + convertTimePeriodToName(pTimePeriod)) }
-        if (INFO_LOG === true) { logger.write('[INFO] setTimePeriod -> timePeriod = ' + convertTimePeriodToName(timePeriod)) }
-
         exitSavingMode()
       } else {
-        if (INFO_LOG === true) { logger.write('[INFO] setTimePeriod -> Will ENTER Saving Mode.') }
-        if (INFO_LOG === true) { logger.write('[INFO] setTimePeriod -> pTimePeriod = ' + convertTimePeriodToName(pTimePeriod)) }
-        if (INFO_LOG === true) { logger.write('[INFO] setTimePeriod -> timePeriod = ' + convertTimePeriodToName(timePeriod)) }
-
         enterSavingMode()
       }
 
       function enterSavingMode () {
         try {
-          if (INFO_LOG === true) { logger.write('[INFO] setTimePeriod -> enterSavingMode -> Entering function.') }
-
-          switch (timePeriod) {
+          switch (timeFrame) {
 
             case _45_MINUTES_IN_MILISECONDS:
               {
@@ -299,15 +277,13 @@ function newFileCursor () {
             default:
           }
         } catch (err) {
-          if (ERROR_LOG === true) { logger.write('[ERROR] setTimePeriod -> enterSavingMode -> err = ' + err.stack) }
+          if (ERROR_LOG === true) { logger.write('[ERROR] setTimeFrame -> enterSavingMode -> err = ' + err.stack) }
         }
       }
 
       function exitSavingMode () {
         try {
-          if (INFO_LOG === true) { logger.write('[INFO] setTimePeriod -> exitSavingMode -> Entering function.') }
-
-          switch (timePeriod) {
+          switch (timeFrame) {
 
             case _45_MINUTES_IN_MILISECONDS:
               {
@@ -378,18 +354,17 @@ function newFileCursor () {
             default:
           }
         } catch (err) {
-          if (ERROR_LOG === true) { logger.write('[ERROR] setTimePeriod -> exitSavingMode -> err = ' + err.stack) }
+          if (ERROR_LOG === true) { logger.write('[ERROR] setTimeFrame -> exitSavingMode -> err = ' + err.stack) }
         }
       }
     } catch (err) {
-      if (ERROR_LOG === true) { logger.write('[ERROR] setTimePeriod -> err = ' + err.stack) }
+      if (ERROR_LOG === true) { logger.write('[ERROR] setTimeFrame -> err = ' + err.stack) }
     }
   }
 
   function setDatetime (pDatetime) {
     try {
       if (finalized === true) { return }
-      if (INFO_LOG === true) { logger.write('[INFO] setDatetime -> Entering function.') }
 
       if (pDatetime === undefined) {
         if (ERROR_LOG === true) { logger.write('[ERROR] setDatetime -> Received undefined datetime.') }
@@ -405,7 +380,6 @@ function newFileCursor () {
   function reload (callBackFunction) {
     try {
       if (finalized === true) { return }
-      if (INFO_LOG === true) { logger.write('[INFO] reload -> Entering function.') }
 
       getFiles(callBackFunction)
 
@@ -419,7 +393,6 @@ function newFileCursor () {
   function getFiles (callBackFunction) {
     try {
       if (finalized === true) { return }
-      if (INFO_LOG === true) { logger.write('[INFO] getFiles -> Entering function.') }
 
       let i = 0
       let j = 0
@@ -430,12 +403,10 @@ function newFileCursor () {
 
       function getNextFile () {
         try {
-          if (INFO_LOG === true) { logger.write('[INFO] getFiles -> getNextFile -> Entering function.') }
-
           let targetDate = new Date(cursorDate)
           targetDate.setUTCDate(targetDate.getUTCDate() + j)
 
-                    /* Small algorith to allow load first the current date, then alternate between the most forwad and the most backwards ones. */
+          /* Small algorith to allow load first the current date, then alternate between the most forwad and the most backwards ones. */
           if (j === 0) { j++ } else {
             if (j < 0) {
               j = -j
@@ -448,7 +419,7 @@ function newFileCursor () {
           let compareTargetDate = new Date(targetDate.valueOf())
 
           if (beginDateRange !== undefined) {
-            let compareBeginDate = beginDateRange
+            let compareBeginDate = removeTime(beginDateRange)
 
             if (compareTargetDate.valueOf() < compareBeginDate) {
               controlLoop()
@@ -457,7 +428,7 @@ function newFileCursor () {
           }
 
           if (endDateRange !== undefined) {
-            let compareEndDate = endDateRange
+            let compareEndDate = removeTime(endDateRange)
 
             if (compareTargetDate.valueOf() > compareEndDate) {
               controlLoop()
@@ -474,9 +445,9 @@ function newFileCursor () {
             controlLoop()
           } else {
             if (thisObject.files.get(dateString) === undefined) {
- // We dont reload files we already have.
+              // We dont reload files we already have.
 
-              fileCloud.getFile(devTeam, bot, thisSet, exchange, market, periodName, targetDate, undefined, undefined, onFileReceived)
+              fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, periodName, targetDate, undefined, undefined, onFileReceived)
             } else {
               controlLoop()
             }
@@ -559,7 +530,6 @@ function newFileCursor () {
   function collectGarbage (callBackFunction) {
     try {
       if (finalized === true) { return }
-      if (INFO_LOG === true) { logger.write('[INFO] collectGarbage -> Entering function.') }
 
       date = removeTime(cursorDate)
 
