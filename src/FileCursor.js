@@ -34,6 +34,7 @@ function newFileCursor () {
   let timeFrame
   let beginDateRange
   let endDateRange
+  let eventsServerClient
 
   let finalized = false
 
@@ -44,8 +45,8 @@ function newFileCursor () {
 
   function finalize () {
     try {
-      systemEventHandler.stopListening('Dataset Updated', eventSubscriptionIdDatasetUpdated)
-      systemEventHandler.stopListening('Data Range Updated', eventSubscriptionIdDataRangeUpdated)
+      eventsServerClient.stopListening('Dataset Updated', eventSubscriptionIdDatasetUpdated)
+      eventsServerClient.stopListening('Data Range Updated', eventSubscriptionIdDataRangeUpdated)
 
       thisObject.eventHandler = undefined
 
@@ -61,6 +62,7 @@ function newFileCursor () {
       timeFrame = undefined
       beginDateRange = undefined
       endDateRange = undefined
+      eventsServerClient = undefined
 
       thisObject.files = undefined
       cursorDate = undefined
@@ -73,7 +75,23 @@ function newFileCursor () {
     }
   }
 
-  function initialize (pFileCloud, pDataMine, pBot, pSession, pProduct, pDataset, pExchange, pMarket, pPeriodName, pTimeFrame, pCursorDate, pCurrentTimeFrame, pBeginDateRange, pEndDateRange, callBackFunction) {
+  function initialize (
+    pFileCloud,
+    pDataMine,
+    pBot,
+    pSession,
+    pProduct,
+    pDataset,
+    pExchange,
+    pMarket,
+    pPeriodName,
+    pTimeFrame,
+    pCursorDate,
+    pCurrentTimeFrame,
+    pBeginDateRange,
+    pEndDateRange,
+    pEventsServerClient,
+    callBackFunction) {
     try {
       market = pMarket
       exchange = pExchange
@@ -88,12 +106,15 @@ function newFileCursor () {
       timeFrame = pTimeFrame
       beginDateRange = pBeginDateRange
       endDateRange = pEndDateRange
+      eventsServerClient = pEventsServerClient
 
-      let key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + dataset.code.codeName
-      systemEventHandler.listenToEvent(key, 'Dataset Updated', undefined, key + '-' + periodName, onResponseDataSet, updateFiles)
+      let key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + dataset.code.codeName + '-' + exchange.name + '-' + market.baseAsset + '/' + market.quotedAsset
+      let callerId = key + '-' + periodName + newUniqueId()
+      eventsServerClient.listenToEvent(key, 'Dataset Updated', undefined, callerId, onResponseDataSet, updateFiles)
 
-      key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + pPeriodName
-      systemEventHandler.listenToEvent(key, 'Data Range Updated', undefined, key, onResponseDataRange, updateDataRange)
+      key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + exchange.name + '-' + market.baseAsset + '/' + market.quotedAsset
+      callerId = key + '-' + periodName + newUniqueId()
+      eventsServerClient.listenToEvent(key, 'Data Range Updated', undefined, callerId, onResponseDataRange, updateDataRange)
 
       callBackFunction(GLOBAL.DEFAULT_OK_RESPONSE)
 
@@ -147,7 +168,7 @@ function newFileCursor () {
 
       dateString = targetDate.getUTCFullYear() + '-' + pad(targetDate.getUTCMonth() + 1, 2) + '-' + pad(targetDate.getUTCDate(), 2)
 
-      fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, periodName, targetDate, undefined, undefined, onFileReceived)
+      fileCloud.getFile(dataMine, bot, session, product, dataset, exchange, market, periodName, targetDate, undefined, undefined, onFileReceived)
 
       function onFileReceived (err, file) {
         try {
@@ -447,7 +468,7 @@ function newFileCursor () {
             if (thisObject.files.get(dateString) === undefined) {
               // We dont reload files we already have.
 
-              fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, periodName, targetDate, undefined, undefined, onFileReceived)
+              fileCloud.getFile(dataMine, bot, session, product, dataset, exchange, market, periodName, targetDate, undefined, undefined, onFileReceived)
             } else {
               controlLoop()
             }

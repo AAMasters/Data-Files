@@ -17,23 +17,23 @@ function newFileCloud () {
     initialize: initialize
   }
 
-  let blobService
+  let fileStorage
 
   return thisObject
 
-  function initialize (pBot) {
-    blobService = newFileStorage()
+  function initialize (pBot, pHost, pPort) {
+    fileStorage = newFileStorage(pHost, pPort)
   }
 
-  function getFile (pDataMine, pBot, pSession, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction) {
+  function getFile (pDataMine, pBot, pSession, pProduct, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction) {
     try {
       if (INFO_LOG === true) { logger.write('[INFO] getFile -> Entering function.') }
 
       const MAX_RETRIES = 3
 
-      getFileRecursively(0, pDataMine, pBot, pSession, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction)
+      getFileRecursively(0, pDataMine, pBot, pSession, pProduct, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction)
 
-      function getFileRecursively (pRetryCounter, pDataMine, pBot, pSession, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction) {
+      function getFileRecursively (pRetryCounter, pDataMine, pBot, pSession, pProduct, pDataset, pExchange, pMarket, pPeriodName, pDatetime, pSequence, pDataRange, callBackFunction) {
         try {
           if (INFO_LOG === true) { logger.write('[INFO] getFile -> getFileRecursively -> Entering function.') }
           if (INFO_LOG === true) { logger.write('[INFO] getFile -> getFileRecursively -> key = ' + pDataMine.code.codeName + '-' + pBot.code.codeName + '-' + pDataset.code.filePath + '-' + pDataset.code.fileName) }
@@ -75,8 +75,8 @@ function newFileCloud () {
           }
 
           if (pMarket !== undefined) {
-            fileName = fileName.replace('@BaseAsset', pMarket.baseAsset)
-            fileName = fileName.replace('@QuotedAsset', pMarket.quotedAsset)
+            filePath = filePath.replace('@BaseAsset', pMarket.baseAsset)
+            filePath = filePath.replace('@QuotedAsset', pMarket.quotedAsset)
           }
 
           if (pDataMine !== undefined) {
@@ -99,10 +99,12 @@ function newFileCloud () {
           }
 
           if (pExchange !== undefined) {
-            filePath = filePath.replace('@Exchange', pExchange.code.codeName)
+            filePath = filePath.replace('@Exchange', pExchange.name)
           }
 
           filePath = filePath.replace('@Period', pPeriodName)
+          filePath = filePath.replace('@Dataset', pDataset.code.codeName)
+          filePath = filePath.replace('@Product', pProduct.code.codeName)
 
           if (pDatetime !== undefined) {
             filePath = filePath.replace('@Year', pDatetime.getUTCFullYear())
@@ -119,7 +121,7 @@ function newFileCloud () {
           if (INFO_LOG === true) { logger.write('[INFO] getFile -> getFileRecursively -> filePath = ' + filePath) }
           if (INFO_LOG === true) { logger.write('[INFO] getFile -> getFileRecursively -> fileName = ' + fileName) }
 
-          blobService.getBlobToText(filePath + '/' + fileName, undefined, onFileReceived)
+          fileStorage.getFileFromHost(filePath + '/' + fileName, onFileReceived)
 
           function onFileReceived (err, text, response) {
             try {

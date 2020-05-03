@@ -32,12 +32,13 @@ function newFileSequence () {
 
   let eventSubscriptionIdDatasetUpdated
   let callerId
+  let eventsServerClient
 
   return thisObject
 
   function finalize () {
     try {
-      systemEventHandler.stopListening('Dataset Updated', eventSubscriptionIdDatasetUpdated)
+      eventsServerClient.stopListening('Dataset Updated', eventSubscriptionIdDatasetUpdated)
 
       thisObject.eventHandler.finalize()
       thisObject.eventHandler = undefined
@@ -52,6 +53,7 @@ function newFileSequence () {
       session = undefined
       dataset = undefined
       product = undefined
+      eventsServerClient = undefined
 
       finalized = true
     } catch (err) {
@@ -59,7 +61,18 @@ function newFileSequence () {
     }
   }
 
-  function initialize (pDataMine, pBot, pSession, pProduct, pDataset, pExchange, pMarket, callBackFunction) {
+  function initialize (
+    pDataMine,
+    pBot,
+    pSession,
+    pProduct,
+    pDataset,
+    pExchange,
+    pMarket,
+    pHost,
+    pPort,
+    pEventsServerClient,
+    callBackFunction) {
     try {
       exchange = pExchange
       market = pMarket
@@ -68,14 +81,15 @@ function newFileSequence () {
       session = pSession
       dataset = pDataset
       product = pProduct
+      eventsServerClient = pEventsServerClient
 
       fileCloud = newFileCloud()
-      fileCloud.initialize(bot)
+      fileCloud.initialize(bot, pHost, pPort)
 
       callerId = newUniqueId()
 
-      let key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + dataset.code.codeName
-      systemEventHandler.listenToEvent(key, 'Dataset Updated', undefined, callerId, onResponse, updateFiles)
+      let key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + dataset.code.codeName + '-' + exchange.name + '-' + market.baseAsset + '/' + market.quotedAsset
+      eventsServerClient.listenToEvent(key, 'Dataset Updated', undefined, callerId, onResponse, updateFiles)
 
       function onResponse (message) {
         eventSubscriptionIdDatasetUpdated = message.eventSubscriptionId
@@ -83,7 +97,7 @@ function newFileSequence () {
 
             /* First we will get the sequence max number */
 
-      fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, undefined, undefined, 'Sequence', undefined, onSequenceFileReceived)
+      fileCloud.getFile(dataMine, bot, session, product, dataset, exchange, market, undefined, undefined, 'Sequence', undefined, onSequenceFileReceived)
 
       function onSequenceFileReceived (err, file) {
         try {
@@ -128,7 +142,7 @@ function newFileSequence () {
                     /* Now we will get the sequence of files */
 
           for (let i = 0; i <= maxSequence; i++) {
-            fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, undefined, undefined, i, undefined, onFileReceived)
+            fileCloud.getFile(dataMine, bot, session, product, dataset, exchange, market, undefined, undefined, i, undefined, onFileReceived)
 
             function onFileReceived (err, file) {
               try {
@@ -193,7 +207,7 @@ function newFileSequence () {
 
       let currentMaxSequence = maxSequence
 
-      fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, undefined, undefined, 'Sequence', undefined, onSequenceFileReceived)
+      fileCloud.getFile(dataMine, bot, session, product, dataset, exchange, market, undefined, undefined, 'Sequence', undefined, onSequenceFileReceived)
 
       function onSequenceFileReceived (err, sequenceFile) {
         try {
@@ -229,7 +243,7 @@ function newFileSequence () {
                     /* Now we will get the sequence of files, but in this case only from the currentMaxSequence and above. */
 
           for (let i = currentMaxSequence; i <= maxSequence; i++) {
-            fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, undefined, undefined, i, undefined, onFileReceived)
+            fileCloud.getFile(dataMine, bot, session, product, dataset, exchange, market, undefined, undefined, i, undefined, onFileReceived)
 
             function onFileReceived (err, file) {
               try {

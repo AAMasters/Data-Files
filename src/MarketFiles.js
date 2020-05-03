@@ -36,13 +36,16 @@ function newMarketFiles () {
   let intervalHandle
   let finalized = false
 
-  let eventSubscriptionIdDatasetUpdated
+  let eventSubscriptionIdDatasetUpdated = []
+  let eventsServerClient
 
   return thisObject
 
   function finalize () {
     try {
-      systemEventHandler.stopListening('Dataset Updated', eventSubscriptionIdDatasetUpdated)
+      for (let i = 0; i < eventSubscriptionIdDatasetUpdated.length; i++) {
+        eventsServerClient.stopListening('Dataset Updated', eventSubscriptionIdDatasetUpdated[i])
+      }
 
       thisObject.eventHandler.finalize()
       thisObject.eventHandler = undefined
@@ -58,6 +61,7 @@ function newMarketFiles () {
       dataset = undefined
       product = undefined
       periodName = undefined
+      eventsServerClient = undefined
 
       finalized = true
     } catch (err) {
@@ -65,7 +69,18 @@ function newMarketFiles () {
     }
   }
 
-  function initialize (pDataMine, pBot, pSession, pProduct, pDataset, pExchange, pMarket, callBackFunction) {
+  function initialize (
+    pDataMine,
+    pBot,
+    pSession,
+    pProduct,
+    pDataset,
+    pExchange,
+    pMarket,
+    pHost,
+    pPort,
+    pEventsServerClient,
+    callBackFunction) {
     try {
       exchange = pExchange
       market = pMarket
@@ -74,9 +89,18 @@ function newMarketFiles () {
       session = pSession
       dataset = pDataset
       product = pProduct
+      eventsServerClient = pEventsServerClient
 
       fileCloud = newFileCloud()
-      fileCloud.initialize(pBot)
+      fileCloud.initialize(pBot, pHost, pPort)
+
+      /* Some Validations */
+      if (dataset.code.validTimeFrames === undefined) {
+        if (ERROR_LOG === true) { logger.write('[ERROR] initialize -> err = Can not initialize Market Files for bot ' + pBot.name) }
+        if (ERROR_LOG === true) { logger.write('[ERROR] initialize -> err = You need to define validTimeFrames at the Dataset config. ') }
+        callBackFunction(GLOBAL.DEFAULT_FAIL_RESPONSE)
+        return
+      }
 
             /* Now we will get the market files */
 
@@ -85,7 +109,7 @@ function newMarketFiles () {
         let periodName = marketFilesPeriods[i][1]
 
         if (dataset.code.validTimeFrames.includes(periodName) === true) {
-          fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, periodName, undefined, undefined, undefined, onFileReceived)
+          fileCloud.getFile(dataMine, bot, session, product, dataset, exchange, market, periodName, undefined, undefined, undefined, onFileReceived)
 
           function onFileReceived (err, file) {
             try {
@@ -98,13 +122,14 @@ function newMarketFiles () {
               }
 
               if (filesLoaded + filesNotLoaded === marketFilesPeriods.length) {
-                let key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + dataset.code.codeName
-                systemEventHandler.listenToEvent(key, 'Dataset Updated', undefined, key + '-' + periodName, onResponse, updateFiles)
+                let key = dataMine.code.codeName + '-' + bot.code.codeName + '-' + product.code.codeName + '-' + dataset.code.codeName + '-' + exchange.name + '-' + market.baseAsset + '/' + market.quotedAsset
+                let callerId = key + '-' + periodName + newUniqueId()
+                eventsServerClient.listenToEvent(key, 'Dataset Updated', undefined, callerId, onResponse, updateFiles)
 
                 callBackFunction(GLOBAL.DEFAULT_OK_RESPONSE, thisObject)
 
                 function onResponse (message) {
-                  eventSubscriptionIdDatasetUpdated = message.eventSubscriptionId
+                  eventSubscriptionIdDatasetUpdated.push(message.eventSubscriptionId)
                 }
               }
             } catch (err) {
@@ -132,7 +157,7 @@ function newMarketFiles () {
         let periodName = marketFilesPeriods[i][1]
 
         if (dataset.code.validTimeFrames.includes(periodName) === true) {
-          fileCloud.getFile(dataMine, bot, session, dataset, exchange, market, periodName, undefined, undefined, undefined, onFileReceived)
+          fileCloud.getFile(dataMine, bot, session, product, dataset, exchange, market, periodName, undefined, undefined, undefined, onFileReceived)
 
           function onFileReceived (err, file) {
             try {
